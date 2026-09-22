@@ -6,8 +6,7 @@ We have added an idempotency key to be sent through headers to prevent client to
 
 The API should validate that there suffcient amount to place this order and once the user added the order to its cart, and the product state should be reserved and the total available amount of the product should be decreased 
 
-This will prevent an important edge case where there is only one remaining product 
-allowing 2 users to place it to their cart may end up with race condition that affect the correctness.
+This will prevent an important edge case where there is only one remaining product then allowing 2 users to place it to their cart may end up with race condition that affect the correctness.
 
 
 ### 2. Process the order
@@ -18,27 +17,34 @@ Another major concern here is the post being created on the database level but f
 
 We couldn't create transaction on adding the new order to db and these other operations which would be implemented asynchrounusly. So I would use a message broker like kafka but this also will not gurantee to success together
 
-### 3. Out of box pattern
+### 3. Out of box Pattern
 
 To solve the previously mentioned problem, and to benefit from the database transaction which insterting the order to database and add the event to the out of box table, and this should succeed togther and this is gurantee even if kafka failed, the event was saved and would be retried when available
 
 ### 4. Inventory
 
-Placing where each order is existed is a highly requested service so for butter performance this information should be stored in redis but this wouldn't be the source of truth, 
-it just would be ephemeral data, our primary database would be postgresql 
+Placing where each order is existed is a highly requested service so for butter performance this information should be stored in redis but this wouldn't be the source of truth, it just would be ephemeral data, our primary database would be postgresql.
 
-### 5. Robot allocation
+### 5. Robot Allocation
 
 As mentioned the robot allocation algorithm will be treated as a black box but there's couple of things should be considered the robot will send a heartbeat
-each 10 seconds this will help us now the online robots, the robot may use its location as a heartbeat and it would be stored on redis and also we could apply
-a geohashing index on it for faster retreival.
+each 10 seconds this will help us now the online robots, the robot may use its location as a heartbeat and it would be stored on redis and also we could apply a geohashing index on it for faster retreival.
 
-### 6. Robot failure
+**NOTE**: Robot communication will be done using MQTT Protocol, it also could be done through WebSockets, but I will stick with MQTT since it's optimized for IoT communication.
 
-when a robot doesn't send a heartbeat over than 10s it should consider as offline and we check if it is has a task that doesn't start yet we assign it to another robot
-and if it is already working on a task we can wait for a reasonable amount of time (like e.g. 1 hour TTL) if it still not working we will find another available robot to complete it
+### 6. Robot Failure
+
+When a robot doesn't send a heartbeat over than 10s it should consider as offline and we check if it is has a task that doesn't start yet we assign it to another robot
+and if it is already working on a task we can wait for a reasonable amount of time (like e.g. 1 hour TTL) if it still not working we will find another available robot to complete it.
 
 ### 7. Redis Failure
 
-We depend on redis for heartbeat and location update, what we would do if it fails? falling back to the database would be massive if all these update suddenly goes to it,
-for some senarios using a different cluster may solve the issue but if all of them unavailable. The system should be tolerant to this fail without crash
+We depend on redis for heartbeat and location update, what we would do if it fails? falling back to the database would be massive if all these updates suddenly goes to it, for some senarios using a different cluster may solve the issue but if all of them unavailable. The system should be tolerant to this fail without crash
+
+### 8. Notifications
+
+In a regular day, the notifications sent to the operations team wouldn't be that massive, but on failure it should be sent in patches (fan-out pattern) to avoid exahsuting the server.
+
+### 9. Connections Pool
+
+The server should keep some of connections to be reused, instead of opening a new connection for each request, but this should be limited to max limit, and I would make it 20 max for each instance, and this is doesn't mean it will only process 20 request per second, it may take 20 ms to complete and to make sure that one request doesn't block others from being processed we will set a timeout.
